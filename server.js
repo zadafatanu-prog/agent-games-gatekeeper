@@ -421,11 +421,17 @@ function handleHealth(req, res) {
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
   if (req.method === 'GET' && url.pathname === '/health') return handleHealth(req, res);
-  if (req.method === 'POST' && url.pathname === '/gatekeeper') {
+  // The platform POSTs preflight + tasks to the endpoint URL as registered
+  // (no path suffix), so every POST goes to the gatekeeper handler — the
+  // HMAC check inside rejects anything unsigned before parsing.
+  if (req.method === 'POST') {
     return handleGatekeeper(req, res).catch((e) => {
       console.error(`[${new Date().toISOString()}] handler error: ${e.message}`);
       if (!res.headersSent) sendJson(res, 500, { error: 'internal_error' }, false);
     });
+  }
+  if (req.method === 'GET' && url.pathname === '/') {
+    return sendJson(res, 200, { ok: true, agent: 'proof-gatekeeper' }, false);
   }
   sendJson(res, 404, { error: 'not_found' }, false);
 });
@@ -455,7 +461,7 @@ async function selfTestProve() {
 }
 
 server.listen(PORT, async () => {
-  console.log(`Proof Gatekeeper listening on http://127.0.0.1:${PORT} (POST /gatekeeper, GET /health)`);
+  console.log(`Proof Gatekeeper listening on http://127.0.0.1:${PORT} (POST /, GET /health)`);
   console.log(`HMAC: ${HMAC_CONFIGURED ? 'platform secret set via env' : 'TEST secret — local only, do not go live with this'}`);
   console.log(`taskId mode: ${TASK_ID_MODE}`);
   console.log(`seen-set: ${seenLoaded} proof(s) loaded from ${SEEN_FILE}`);
