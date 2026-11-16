@@ -107,6 +107,48 @@ const seenProofTx = new Map();
 // cached body without re-deciding (and without tripping reuse detection).
 const responseCache = new Map();
 
+// ---------------------------------------------------------------- seen-set persistence
+
+// The seen-proof set survives server restarts via an append-only JSONL file
+// (one {"proof_tx","task_id"} line per first sighting). Loaded at startup;
+// each new sighting is appended synchronously. On hosts with an ephemeral
+// filesystem (e.g. Railway without a mounted volume) the file survives a
+// process restart inside a deployment, not a redeploy — a redeploy resets
+// the set, so the first task after a redeploy cannot be flagged as a reuse
+// of a pre-redeploy proof. The response cache stays in-memory by design:
+// a retry re-decides deterministically (same verdict, fresh salt/proof).
+const SEEN_FILE = process.env.GATEKEEPER_SEEN_FILE || path.join(DIR, 'seen-proofs.jsonl');
+
+function loadSeenProofTx() {
+  let n = 0;
+  try {
+    for (const line of fs.readFileSync(SEEN_FILE, 'utf8').split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        const e = JSON.parse(line);
+        if (typeof e.proof_tx === 'string' && typeof e.task_id === 'string' && !seenProofTx.has(e.proof_tx)) {
+          seenProofTx.set(e.proof_tx, e.task_id);
+          n++;
+        }
+      } catch { /* skip a corrupt line */ }
+    }
+  } catch (e) {
+    if (e.code !== 'ENOENT') console.error('loadSeenProofTx:', e.message);
+  }
+  return n;
+}
+
+function recordSeenProofTx(proofTx, taskId) {
+  seenProofTx.set(proofTx, taskId);
+  try {
+    fs.appendFileSync(SEEN_FILE, JSON.stringify({ proof_tx: proofTx, task_id: taskId }) + '\n');
+  } catch (e) {
+    console.error('recordSeenProofTx:', e.message);
+  }
+}
+
+const seenLoaded = loadSeenProofTx();
+
 const NUMERIC_FIELDS = ['minimum', 'public_balance', 'amount', 'max_transfer', 'expiry_block', 'current_block'];
 const STRING_FIELDS = ['registered_vk', 'proof_vk', 'recipient', 'condition_recipient', 'proof_tx'];
 
@@ -148,7 +190,7 @@ function decide(task) {
   if (prevTask !== undefined && prevTask !== taskId) {
     return { decision: 'REJECT', reason_code: 'PROOF_REUSED' };
   }
-  if (prevTask === undefined) seenProofTx.set(proofTx, taskId);
+  if (prevTask === undefined) recordSeenProofTx(proofTx, taskId);
 
   const minimum = BigInt(input.minimum);
   const publicBalance = BigInt(input.public_balance);
@@ -416,6 +458,7 @@ server.listen(PORT, async () => {
   console.log(`Proof Gatekeeper listening on http://127.0.0.1:${PORT} (POST /gatekeeper, GET /health)`);
   console.log(`HMAC: ${HMAC_CONFIGURED ? 'platform secret set via env' : 'TEST secret — local only, do not go live with this'}`);
   console.log(`taskId mode: ${TASK_ID_MODE}`);
+  console.log(`seen-set: ${seenLoaded} proof(s) loaded from ${SEEN_FILE}`);
   try {
     await selfTestProve();
     console.log(`self-test: ${selfTest.detail}`);

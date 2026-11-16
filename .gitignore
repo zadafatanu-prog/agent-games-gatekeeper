@@ -1,5 +1,6 @@
 node_modules/
 .env
 *.log
+seen-proofs.jsonl
 circuits/gatekeeper.wasm
 circuits/gatekeeper_final.zkey

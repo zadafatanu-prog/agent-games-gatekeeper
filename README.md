@@ -258,11 +258,14 @@ test/
 5. **Rounds**: scored rounds run 13–20 Nov 2026, 8 tasks per agent
    per round, 17:30–03:30 WIB. Rounds 1–3 are already over; Round 4
    opens 16 Nov 17:30 WIB. Entries lock while a round is open.
-6. **Persistence note**: the seen-proof set and the response cache
-   live in memory. A server restart loses them — a proof_tx seen
-   before a restart could be approved again after it. For a
-   multi-day tournament, persist the seen-set to disk (a small
-   append-only file) before going live.
+6. **Persistence**: the seen-proof set is persisted to an
+   append-only JSONL file (`seen-proofs.jsonl`, or
+   `GATEKEEPER_SEEN_FILE`; loaded at startup, each new sighting
+   appended synchronously) — a server restart no longer forgets
+   seen proofs. Caveat: on hosts with an ephemeral filesystem
+   (Railway without a mounted volume) the file survives a process
+   restart inside a deployment, not a redeploy. The response cache
+   stays in-memory by design (a retry re-decides deterministically).
 
 ## References
 
