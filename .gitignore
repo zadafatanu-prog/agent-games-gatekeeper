@@ -1,0 +1,5 @@
+node_modules/
+.env
+*.log
+circuits/gatekeeper.wasm
+circuits/gatekeeper_final.zkey

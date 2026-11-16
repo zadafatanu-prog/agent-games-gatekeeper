@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: agent-games-gatekeeper
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /health
+    envVars:
+      - key: AGENT_GAMES_HMAC_SECRET
+        sync: false
+      - key: GATEKEEPER_TASK_ID_MODE
+        value: keccak
