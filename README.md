@@ -1,14 +1,17 @@
 # Proof Gatekeeper — zkVerify Agent Games Season 01
 
-A local, working Proof Gatekeeper agent for the zkVerify Agent Games
-(Season 01, 21 Oct – 21 Nov 2026). It receives a signed task envelope,
-decides APPROVE or REJECT by walking the documented 7-trap checklist,
-generates a Groth16 proof of the decision with the tournament's official
-gatekeeper circuit, verifies that proof locally, and returns a signed
-response — all inside the 60-second deadline.
+A working Proof Gatekeeper agent for the zkVerify Agent Games
+(Season 01, 21 Oct – 21 Nov 2026), deployed live on Railway. It
+receives a signed task envelope, decides APPROVE or REJECT by walking
+the documented 7-trap checklist, generates a Groth16 proof of the
+decision with the tournament's official gatekeeper circuit, verifies
+that proof locally, and returns a signed response — all inside the
+60-second deadline.
 
-**Status: local build, tested end to end. Account registered (handle
-`genou`). Deployment to Render in progress — see below.**
+**Status: live in production. Account registered (handle `genou`).
+Deployed on Railway (public HTTPS): https://agent-games-gatekeeper-production-fd3addc0.up.railway.app
+— 32/32 tasks answered across Rounds 5–8, 326.0 points, rank #268
+(current standings, 21 Nov 2026), 99.8% uptime. `/health` is public.**
 
 ## How to run
 
@@ -23,8 +26,8 @@ Environment variables:
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `PORT` | `8787` | Local port |
-| `AGENT_GAMES_HMAC_SECRET` | built-in TEST secret | Platform secret from registration (Rotate Secret). Without it the server uses a test-only placeholder and `/health` reports `hmacConfigured: false`. |
-| `GATEKEEPER_TASK_ID_MODE` | `keccak` | How `task_id` maps to a circuit field element: `keccak` (keccak256 mod p), `numeric`, or `hex`. Unconfirmed against the platform — see open items. |
+| `AGENT_GAMES_HMAC_SECRET` | built-in TEST secret (local dev only) | Platform secret from registration (Rotate Secret). Production runs with the real platform secret (`/health` reports `hmacConfigured: true`); the test secret must never go live. |
+| `GATEKEEPER_TASK_ID_MODE` | `keccak` | How `task_id` maps to a circuit field element: `keccak` (keccak256 mod p), `numeric`, or `hex`. Unconfirmed against the platform — a suspect in the 0-verified-proofs diagnostic (see below). |
 
 Endpoints:
 
@@ -209,9 +212,12 @@ G2 limbs swapped) — none matches the registered vkHash
 the same result. The platform (zkVerify/Kurier) computes the
 registered hash over its own canonical serialization. This does not
 affect local proof generation (proofs verify against the exported
-vk), but it is an open item for going live: the platform re-verifies
-proofs against *its* registered key, so the first practice task is
-the real check that our proofs are accepted.
+vk), but it is now the leading hypothesis for the 0 verified proofs
+on the live dashboard (see "Live results" below): if the platform's
+verifier checks the proof's vkHash against its on-chain registry
+and our serialization differs, every proof would be rejected
+before on-chain confirmation. Hypothesis under diagnosis, not an
+established cause.
 
 ## Files
 
@@ -230,42 +236,31 @@ test/
   vkhash-check.js          vkHash reproduction attempt (open item)
 ```
 
-## What is still needed to go live
+## Live results (Season 01, checked 21 Nov 2026)
 
-1. **Registration**: DONE — account registered 2026-11-16 as handle
-   `genou` (SIWE). Still needed: connect a GitHub account and a wallet
-   for prizes (dashboard), register the agent endpoint once the public
-   URL exists.
-2. **Real HMAC secret**: from the dashboard (Rotate Secret), set as
-   `AGENT_GAMES_HMAC_SECRET`. The built-in test secret must never go
-   live. The HMAC format (bare hex vs `sha256=` prefix) is assumed
-   from the docs, not confirmed — preflight is the verification step.
-3. **Public HTTPS endpoint**: the platform requires a public HTTPS
-   address (no localhost, no custom ports). This VM has no public IP
-   and its egress proxy blocks the free tunnel services (measured by
-   another participant: tunnelmole 502, trycloudflare 403). Host the
-   server on a PC/VPS with unrestricted egress, or use Tailscale
-   Funnel / a named Cloudflare Tunnel / free hosting. Note the rules:
-   free-tier hosting that sleeps after inactivity will cost tasks
-   (an offline agent forfeits the task).
-4. **Practice task first**: run the signed preflight and at least one
-   practice task before the first scored round. This confirms (a) the
-   HMAC format, (b) the `taskId` mapping (keccak256 mod p is the
-   default; switch `GATEKEEPER_TASK_ID_MODE` to `numeric` or `hex` if
-   the platform rejects the proof), and (c) that proofs generated
-   here are accepted against the platform's registered key (see the
-   vkHash open item above).
-5. **Rounds**: scored rounds run 13–20 Nov 2026, 8 tasks per agent
-   per round, 17:30–03:30 WIB. Rounds 1–3 are already over; Round 4
-   opens 16 Nov 17:30 WIB. Entries lock while a round is open.
-6. **Persistence**: the seen-proof set is persisted to an
-   append-only JSONL file (`seen-proofs.jsonl`, or
-   `GATEKEEPER_SEEN_FILE`; loaded at startup, each new sighting
-   appended synchronously) — a server restart no longer forgets
-   seen proofs. Caveat: on hosts with an ephemeral filesystem
-   (Railway without a mounted volume) the file survives a process
-   restart inside a deployment, not a redeploy. The response cache
-   stays in-memory by design (a retry re-decides deterministically).
+- Registered 16 Nov as handle `genou` (SIWE); GitHub connected
+  (`zadafatanu-prog`); agent healthy.
+- Deployed on Railway (public HTTPS, no sleep). `/health` 200,
+  self-test pass, 25 distinct proofs seen, 33 cached responses.
+- Rounds 5–8: 32/32 tasks answered, 326.0 total points, overall
+  rank #268 (current standings), 99.8% uptime. Rounds 1–3 missed
+  (registered late); Round 4 dispatched no tasks.
+- **Verified proofs: 0** (dashboard counter = proofs confirmed
+  on-chain via zkVerify). Decision scoring succeeded; on-chain
+  proof confirmation did not. Leading hypothesis: the vkHash
+  serialization gap above (and the unconfirmed `taskId` mapping).
+  Under active diagnosis.
+
+## Persistence
+
+The seen-proof set is persisted to an append-only JSONL file
+(`seen-proofs.jsonl`, or `GATEKEEPER_SEEN_FILE`; loaded at startup,
+each new sighting appended synchronously) — a server restart no
+longer forgets seen proofs. Caveat: on hosts with an ephemeral
+filesystem (Railway without a mounted volume) the file survives a
+process restart inside a deployment, not a redeploy. The response
+cache stays in-memory by design (a retry re-decides
+deterministically).
 
 ## References
 
